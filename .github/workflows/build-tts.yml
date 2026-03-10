@@ -1,39 +1,18 @@
-name: Build BabelCast Docker Images
+name: Build qwen3-tts
 
 on:
   push:
     branches: [main]
     paths:
-      - 'docker/**'
-      - 'teams-bot/**'
-      - '.github/workflows/docker-build.yml'
+      - 'docker/Dockerfile.tts'
+      - 'docker/start-tts.sh'
+      - 'docker/requirements.txt'
+      - '.github/workflows/build-tts.yml'
   workflow_dispatch:
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: marcosremar/babelcast-translategemma
-            dockerfile: docker/Dockerfile
-            name: babelcast-translategemma
-            build_args: CONF_LLM_MODEL=translategemma
-          - image: marcosremar/babelcast-mistral
-            dockerfile: docker/Dockerfile
-            name: babelcast-mistral
-            build_args: CONF_LLM_MODEL=mistral
-          - image: marcosremar/babelcast-groq
-            dockerfile: docker/Dockerfile.groq
-            name: babelcast-groq
-          - image: marcosremar/babelcast-qwen3-tts
-            dockerfile: docker/Dockerfile.tts
-            name: qwen3-tts
-          - image: marcosremar/meet-teams-bot
-            dockerfile: teams-bot/Dockerfile
-            name: meet-teams-bot
-            context: teams-bot
     steps:
       - name: Checkout public repo (Dockerfiles)
         uses: actions/checkout@v4
@@ -56,8 +35,7 @@ jobs:
             /opt/hostedtoolcache /usr/local/share/boost /usr/share/swift \
             /usr/local/graalvm /usr/local/share/chromium /usr/local/share/powershell \
             /usr/local/.ghcup /opt/az /usr/share/miniconda /usr/local/go \
-            /usr/local/julia* /usr/local/sqlpackage \
-            /opt/microsoft /usr/local/aws-cli
+            /usr/local/julia* /usr/local/sqlpackage /opt/microsoft /usr/local/aws-cli
           sudo apt-get purge -y -qq firefox google-chrome-stable \
             microsoft-edge-stable dotnet* aspnetcore* 2>/dev/null || true
           sudo apt-get autoremove -y -qq && sudo apt-get clean
@@ -73,15 +51,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.name }}
+      - name: Build and push babelcast-qwen3-tts
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context || 'docker' }}
-          file: ${{ matrix.dockerfile }}
+          context: docker
+          file: docker/Dockerfile.tts
           push: true
           tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:${{ github.sha }}
-          build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+            marcosremar/babelcast-qwen3-tts:latest
+            marcosremar/babelcast-qwen3-tts:${{ github.sha }}
+          cache-from: type=gha,scope=qwen3-tts
+          cache-to: type=gha,mode=max,scope=qwen3-tts
