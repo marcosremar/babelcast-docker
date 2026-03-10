@@ -12,8 +12,23 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout public repo
+      - name: Checkout public repo (Dockerfile)
         uses: actions/checkout@v4
+
+      - name: Checkout private repo (teams-bot source code)
+        uses: actions/checkout@v4
+        with:
+          repository: marcosremar/babelcast
+          token: ${{ secrets.GH_PAT }}
+          sparse-checkout: teams-bot
+          sparse-checkout-cone-mode: true
+          path: _private
+
+      - name: Place source code alongside Dockerfile
+        run: |
+          # Copy all source files (except Dockerfile which is already in public repo)
+          rsync -a --exclude='Dockerfile' _private/teams-bot/ teams-bot/
+          rm -rf _private
 
       - name: Free disk space
         run: |
