@@ -1,0 +1,48 @@
+# BabelCast Qwen3-TTS — standalone TTS image
+# Lightweight: only Qwen3-TTS + FastAPI, no STT/LLM/pyannote
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# System dependencies (minimal)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libsndfile1 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade PyTorch to 2.6 stable (CUDA 12.4)
+RUN pip install --no-cache-dir --upgrade torch torchaudio \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Python dependencies (TTS only — no whisper, no llama-cpp, no pyannote)
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115.0" "uvicorn[standard]>=0.32.0" \
+    python-multipart soundfile numpy \
+    "huggingface-hub>=0.26.0" hf_transfer \
+    "pydantic-settings>=2.0"
+
+# Install faster-qwen3-tts (CUDA graphs, 5-6x faster)
+RUN pip install --no-cache-dir "transformers>=5.0" "accelerate>=1.12.0" && \
+    pip install --no-cache-dir --no-deps "qwen-tts>=0.1.1" && \
+    pip install --no-cache-dir --no-deps "faster-qwen3-tts>=0.2.1"
+
+# Cleanup
+RUN rm -rf /root/.cache/pip /tmp/pip-*
+
+# Copy TTS service + server
+RUN mkdir -p /app/api/services && touch /app/api/__init__.py /app/api/services/__init__.py
+COPY api/services/tts.py /app/api/services/tts.py
+COPY api/config.py /app/api/config.py
+COPY api/logger.py /app/api/logger.py
+COPY api/server_tts.py /app/api/server_tts.py
+COPY start-tts.sh /app/start-tts.sh
+RUN chmod +x /app/start-tts.sh
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["/app/start-tts.sh"]

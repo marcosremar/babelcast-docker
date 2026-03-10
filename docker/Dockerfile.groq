@@ -1,0 +1,52 @@
+# BabelCast Groq — No local LLM (uses Groq Cloud API for translation)
+# Smaller image: no llama-cpp-python, no GGUF download
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV CONF_LLM_MODEL=groq
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libsndfile1 sox libsox-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade PyTorch to 2.6 stable (CUDA 12.4)
+RUN pip install --no-cache-dir --upgrade torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Python dependencies (no llama-cpp-python!)
+RUN pip install --no-cache-dir \
+    "faster-whisper>=1.1.0" \
+    "fastapi>=0.115.0" "uvicorn[standard]>=0.32.0" \
+    python-multipart httpx soundfile numpy \
+    "huggingface-hub>=0.26.0" hf_transfer \
+    "pydantic-settings>=2.0" websockets
+
+# TTS dependencies
+RUN pip install --no-cache-dir "transformers==4.57.3" "accelerate>=1.12.0" \
+    librosa einops onnxruntime sox && \
+    pip install --no-cache-dir --no-deps "qwen-tts>=0.1.1" && \
+    pip install --no-cache-dir --no-deps "faster-qwen3-tts>=0.2.1"
+
+# Speaker verification
+RUN pip install --no-cache-dir pyannote.audio && \
+    pip install --no-cache-dir --upgrade torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Cleanup
+RUN rm -rf /root/.cache/pip /tmp/pip-*
+
+# Copy application code
+COPY api/ /app/api/
+COPY start-groq.sh /app/start-groq.sh
+RUN chmod +x /app/start-groq.sh
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["/app/start-groq.sh"]
