@@ -29,6 +29,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Pipeline deps
     ffmpeg libsndfile1 sox libsox-dev curl \
+    # Reverse proxy
+    nginx \
     # Node.js 20
     ca-certificates gnupg \
     # Bot: virtual display + audio
@@ -76,14 +78,12 @@ RUN npx playwright install chromium && \
     find /root/.cache/ms-playwright -name chrome -type f -executable | head -1 | \
     xargs -I {} ln -sf {} /usr/bin/google-chrome
 
-# Copy source, patch port, build, then prune devDeps
+# Copy source, patch port 8080 → 8082, build, then prune devDeps
 COPY teams-bot/ /app/bot/
-RUN sed -i 's/const PORT = 8080/const PORT = 8090/g' src/server.ts && \
+RUN sed -i 's/const PORT = 8080/const PORT = 8082/g' src/server.ts && \
     npm run build && \
-    # Patch compiled JS too (handles any TypeScript inlining quirks)
-    find build -name "*.js" -exec sed -i 's/PORT = 8080/PORT = 8090/g' {} \; && \
-    # Verify patch worked — fail build if bot would still use 8080
-    grep -r "PORT = 8090" build/ > /dev/null || (echo "ERROR: PORT patch failed!" && exit 1) && \
+    find build -name "*.js" -exec sed -i 's/PORT = 8080/PORT = 8082/g' {} \; && \
+    grep -r "PORT = 8082" build/ > /dev/null || (echo "ERROR: PORT patch failed!" && exit 1) && \
     npm prune --production
 
 # ── Pipeline: copy API code ───────────────────────────────────────────────────
@@ -97,6 +97,7 @@ RUN pip install --no-cache-dir -r /app/orchestrator/requirements.txt
 
 # ── Startup script ────────────────────────────────────────────────────────────
 COPY start-all-in-one.sh /app/start-all-in-one.sh
+COPY nginx-all-in-one.conf /etc/nginx/nginx.conf
 RUN chmod +x /app/start-all-in-one.sh
 
 # gateway-facing port
