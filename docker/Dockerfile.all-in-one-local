@@ -1,0 +1,108 @@
+# BabelCast All-in-One LOCAL — Mac/CPU version (no CUDA)
+#
+# Services running inside:
+#   :8080  — nginx (gateway-facing)
+#   :8081  — orchestrator (FastAPI, internal)
+#   :8082  — meet-teams-bot (Node.js, internal)
+#   :8000  — translation pipeline (Whisper CPU + Groq, internal)
+#
+# Build: docker build -f Dockerfile.all-in-one-local -t babelcast-local .
+# Run:   docker run -p 8080:8080 \
+#          -e CONF_GROQ_API_KEY=gsk_... \
+#          -e CONF_SOURCE_LANG=pt \
+#          -e CONF_TARGET_LANG=en \
+#          babelcast-local
+
+FROM ubuntu:22.04
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV CONF_LLM_MODEL=groq
+ENV CONF_WHISPER_DEVICE=cpu
+ENV CONF_WHISPER_COMPUTE_TYPE=int8
+ENV CONF_TTS_ENABLED=false
+ENV CONF_SPEAKER_VERIFY_ENABLED=false
+# Bot display/audio
+ENV DISPLAY=:99
+ENV PULSE_RUNTIME_PATH=/tmp/pulse
+ENV XDG_RUNTIME_DIR=/tmp/pulse
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+ENV SERVERLESS=true
+ENV NODE_ENV=production
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /app
+
+# ── System deps ───────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Python
+    python3 python3-pip python3-dev \
+    # Pipeline deps
+    ffmpeg libsndfile1 sox curl \
+    # Reverse proxy
+    nginx \
+    # Node.js 20
+    ca-certificates gnupg \
+    # Bot: virtual display + audio
+    xvfb x11vnc x11-utils pulseaudio pulseaudio-utils unclutter \
+    # Bot: Chromium system libs
+    libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
+    libxcomposite1 libxdamage1 libxrandr2 libgbm1 libxss1 libxshmfence1 \
+    libgtk-3-0 libgdk-pixbuf2.0-0 \
+    # Utilities
+    wget unzip \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python: CPU PyTorch + Whisper + FastAPI ───────────────────────────────────
+RUN pip3 install --no-cache-dir torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cpu
+
+RUN pip3 install --no-cache-dir \
+    "faster-whisper>=1.1.0" \
+    "fastapi>=0.115.0" "uvicorn[standard]>=0.32.0" \
+    python-multipart httpx soundfile numpy \
+    "huggingface-hub>=0.26.0" hf_transfer \
+    "pydantic-settings>=2.0" websockets groq
+
+RUN rm -rf /root/.cache/pip /tmp/pip-*
+
+# ── Bot: build Node.js app ────────────────────────────────────────────────────
+COPY teams-bot/package.json teams-bot/package-lock.json /app/bot/
+WORKDIR /app/bot
+RUN NODE_ENV=development npm ci
+
+# Install Playwright Chromium
+RUN npx playwright install chromium && \
+    find /root/.cache/ms-playwright -name chrome -type f -executable | head -1 | \
+    xargs -I {} ln -sf {} /usr/bin/google-chrome
+
+# Copy source, patch port 8080 → 8082, build, then prune devDeps
+COPY teams-bot/ /app/bot/
+RUN sed -i 's/const PORT = 8080/const PORT = 8082/g' src/server.ts && \
+    npm run build && \
+    find build -name "*.js" -exec sed -i 's/PORT = 8080/PORT = 8082/g' {} \; && \
+    grep -r "PORT = 8082" build/ > /dev/null || (echo "ERROR: PORT patch failed!" && exit 1) && \
+    npm prune --production
+
+# ── Pipeline: copy API code ───────────────────────────────────────────────────
+WORKDIR /app
+COPY api/ /app/api/
+
+# ── Orchestrator ──────────────────────────────────────────────────────────────
+COPY all-in-one/orchestrator/main.py /app/orchestrator/main.py
+COPY all-in-one/orchestrator/requirements.txt /app/orchestrator/requirements.txt
+RUN pip3 install --no-cache-dir -r /app/orchestrator/requirements.txt
+
+# ── Startup + nginx ───────────────────────────────────────────────────────────
+COPY start-all-in-one.sh /app/start-all-in-one.sh
+COPY nginx-all-in-one.conf /etc/nginx/nginx.conf
+RUN chmod +x /app/start-all-in-one.sh
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=10 --start-period=120s \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["/app/start-all-in-one.sh"]
