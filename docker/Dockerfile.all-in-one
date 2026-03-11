@@ -78,8 +78,12 @@ RUN npx playwright install chromium && \
 
 # Copy source, patch port, build, then prune devDeps
 COPY teams-bot/ /app/bot/
-RUN sed -i 's/const PORT = 8080/const PORT = 8090/' src/server.ts && \
+RUN sed -i 's/const PORT = 8080/const PORT = 8090/g' src/server.ts && \
     npm run build && \
+    # Patch compiled JS too (handles any TypeScript inlining quirks)
+    find build -name "*.js" -exec sed -i 's/PORT = 8080/PORT = 8090/g' {} \; && \
+    # Verify patch worked — fail build if bot would still use 8080
+    grep -r "PORT = 8090" build/ > /dev/null || (echo "ERROR: PORT patch failed!" && exit 1) && \
     npm prune --production
 
 # ── Pipeline: copy API code ───────────────────────────────────────────────────
