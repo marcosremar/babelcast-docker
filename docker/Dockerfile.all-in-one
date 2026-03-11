@@ -68,17 +68,19 @@ RUN rm -rf /root/.cache/pip /tmp/pip-*
 # ── Bot: build Node.js app (port patched 8080 → 8090) ────────────────────────
 COPY teams-bot/package.json teams-bot/package-lock.json /app/bot/
 WORKDIR /app/bot
-RUN npm ci
+# Use NODE_ENV=development so npm ci includes devDependencies (TypeScript needs tsc)
+RUN NODE_ENV=development npm ci
 
 # Install Playwright Chromium
 RUN npx playwright install chromium && \
     find /root/.cache/ms-playwright -name chrome -type f -executable | head -1 | \
     xargs -I {} ln -sf {} /usr/bin/google-chrome
 
-# Copy source and patch port before build
+# Copy source, patch port, build, then prune devDeps
 COPY teams-bot/ /app/bot/
 RUN sed -i 's/const PORT = 8080/const PORT = 8090/' src/server.ts && \
-    npm run build
+    npm run build && \
+    npm prune --production
 
 # ── Pipeline: copy API code ───────────────────────────────────────────────────
 WORKDIR /app
