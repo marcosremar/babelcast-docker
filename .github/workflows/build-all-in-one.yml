@@ -31,10 +31,11 @@ jobs:
 
       - name: Place private source code
         run: |
-          # Pipeline API code
+          # Pipeline API code (inside docker/ context)
           cp -r _private/docker/api docker/api
-          # Bot source (excluding Dockerfile — public repo has it)
-          rsync -a --exclude='Dockerfile' _private/teams-bot/ teams-bot/
+          # Bot source inside docker/ context (Dockerfile.all-in-one references teams-bot/ from there)
+          mkdir -p docker/teams-bot
+          rsync -a --exclude='Dockerfile' _private/teams-bot/ docker/teams-bot/
           rm -rf _private
 
       - name: Free disk space
