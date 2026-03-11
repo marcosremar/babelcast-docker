@@ -1,0 +1,76 @@
+version: '3.8'
+
+# BabelCast All-in-One Stack (Groq Cloud)
+#
+# Services:
+#   pipeline    — Whisper STT + Groq translation API (port 8000, GPU)
+#   bot         — meet-teams-bot Chromium headless (internal port 8080)
+#   orchestrator — Gateway-facing proxy (external port 8080):
+#                  proxies /join → bot (injecting streaming_output),
+#                  bridges WS audio bot→pipeline, exposes /transcripts
+#
+# The gateway (gateway-server.ts) points botEndpoint at this machine:8080.
+# It polls GET /transcripts and POSTs /join / /stop_record.
+#
+# Usage:
+#   cp .env.example .env   # fill in CONF_GROQ_API_KEY
+#   docker compose up -d
+#
+# GPU: requires nvidia-container-toolkit on host (for pipeline service)
+
+services:
+
+  # ── Translation pipeline ─────────────────────────────────────────────────────
+  pipeline:
+    image: marcosremar/babelcast-groq:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      CONF_GROQ_API_KEY: ${CONF_GROQ_API_KEY}
+      CONF_SOURCE_LANG:  ${CONF_SOURCE_LANG:-pt}
+      CONF_TARGET_LANG:  ${CONF_TARGET_LANG:-en}
+      CONF_LLM_MODEL:    groq
+      BABELCAST_HOT_UPDATE: ${BABELCAST_HOT_UPDATE:-1}
+      HF_TOKEN:          ${HF_TOKEN:-}
+    volumes:
+      - pipeline-models:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  # ── Meet-Teams-Bot (Chromium headless) ───────────────────────────────────────
+  bot:
+    image: marcosremar/meet-teams-bot:latest
+    # No external port — orchestrator proxies all traffic
+    shm_size: '2gb'           # Chromium needs shared memory
+    environment:
+      ALLOWED_ORIGIN: "http://orchestrator:8080"
+    restart: unless-stopped
+
+  # ── Orchestrator (gateway-facing) ────────────────────────────────────────────
+  orchestrator:
+    image: marcosremar/babelcast-orchestrator:latest
+    ports:
+      - "8080:8080"
+    environment:
+      BOT_URL:          http://bot:8080
+      PIPELINE_WS_URL:  ws://pipeline:8000/ws/audio
+      SOURCE_LANG:      ${CONF_SOURCE_LANG:-pt}
+      TARGET_LANG:      ${CONF_TARGET_LANG:-en}
+    depends_on:
+      - bot
+      - pipeline
+    restart: unless-stopped
+
+volumes:
+  pipeline-models:
+    # Named volume so Whisper/TTS models persist across container restarts
