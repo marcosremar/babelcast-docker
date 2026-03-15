@@ -6,11 +6,27 @@ Supports streaming chunk generation for low-latency audio output.
 Uses CustomVoice model for preset speakers + voice cloning.
 """
 
-# Fix: transformers 5.x removed pad_token_id from config — must patch before any model import
+# Fix: transformers compatibility patches — must run before any model import
 try:
     from transformers import PretrainedConfig
     if not hasattr(PretrainedConfig, 'pad_token_id') or PretrainedConfig.pad_token_id is None:
         PretrainedConfig.pad_token_id = 0
+except Exception:
+    pass
+
+# Fix: ROPE "default" init function removed in some transformers versions
+try:
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+    if "default" not in ROPE_INIT_FUNCTIONS:
+        import torch as _torch
+        def _default_rope(config, device, seq_len=None, **kw):
+            base = config.rope_theta
+            prf = getattr(config, "partial_rotary_factor", 1.0)
+            hd = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+            dim = int(hd * prf)
+            inv_freq = 1.0 / (base ** (_torch.arange(0, dim, 2, dtype=_torch.int64).float().to(device) / dim))
+            return inv_freq, 1.0
+        ROPE_INIT_FUNCTIONS["default"] = _default_rope
 except Exception:
     pass
 
