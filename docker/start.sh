@@ -1,7 +1,6 @@
 #!/bin/bash
-# BabelCast — RunPod boot script (hybrid mode)
-# Boot order: TTS first → healthy (Groq fallback) → Whisper + LLM in background
-# Set CONF_GROQ_API_KEY for hybrid mode (fast startup with Groq fallback)
+# BabelCast — RunPod boot script
+# Boot order: TTS first → Whisper → LLM → API server
 
 echo "=== BabelCast Translation Pipeline ==="
 echo "Python: $(python3 --version 2>&1)"
@@ -63,14 +62,6 @@ pip install --no-cache-dir -q --no-deps "qwen-tts>=0.1.1" "faster-qwen3-tts>=0.2
 # Re-install CUDA-enabled torchvision from the cu124 index.
 pip install --no-cache-dir -q --upgrade torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 2>&1 | tail -3
 
-# Hybrid mode detection
-HYBRID_MODE=0
-if [ -n "$CONF_GROQ_API_KEY" ] && [ "${CONF_LLM_MODEL:-translategemma}" != "groq" ]; then
-    HYBRID_MODE=1
-    echo "Hybrid mode: Groq fallback enabled (${CONF_GROQ_API_KEY:0:8}...)"
-    echo "Groq model: ${CONF_GROQ_MODEL:-llama-3.3-70b-versatile}"
-fi
-
 # === Download models (TTS first for fast startup) ===
 
 echo "[1/4] Pre-downloading TTS model weights (no CUDA init)..."
@@ -98,15 +89,7 @@ print('  Whisper OK')
 
 LLM_MODEL="${CONF_LLM_MODEL:-translategemma}"
 echo "[3/4] Downloading LLM ($LLM_MODEL)..."
-if [ "$LLM_MODEL" = "groq" ]; then
-    echo "  Using Groq Cloud API (no local model needed)"
-    GGUF_PATH=""
-    if [ -z "$CONF_GROQ_API_KEY" ]; then
-        echo "  WARNING: CONF_GROQ_API_KEY not set — translation will fail!"
-    else
-        echo "  Groq API key configured (${CONF_GROQ_API_KEY:0:8}...)"
-    fi
-elif [ "$LLM_MODEL" = "mistral" ]; then
+if [ "$LLM_MODEL" = "mistral" ]; then
     GGUF_PATH=$(python3 -c "
 from huggingface_hub import hf_hub_download
 p = hf_hub_download('bartowski/Mistral-7B-Instruct-v0.3-GGUF', filename='Mistral-7B-Instruct-v0.3-Q5_K_M.gguf')
@@ -123,33 +106,28 @@ if [ -n "$GGUF_PATH" ]; then
     echo "  GGUF: $GGUF_PATH"
 fi
 
-# Start llama.cpp server (background — API doesn't wait in hybrid mode)
+# Start llama.cpp server (background — wait for it before starting API)
 if [ -f "$GGUF_PATH" ]; then
     echo "[4/4] Starting llama.cpp on port 8002..."
     python3 -m llama_cpp.server --host 127.0.0.1 --port 8002 \
         --model "$GGUF_PATH" --n_gpu_layers 99 --n_ctx 2048 \
         > /tmp/llama.log 2>&1 &
 
-    if [ "$HYBRID_MODE" = "0" ]; then
-        # Non-hybrid: wait for llama.cpp before starting API (original behavior)
-        LLAMA_READY=0
-        for i in $(seq 1 36); do
-            if curl -s http://127.0.0.1:8002/v1/models > /dev/null 2>&1; then
-                LLAMA_READY=1
-                break
-            fi
-            sleep 5
-        done
-        if [ "$LLAMA_READY" = "1" ]; then
-            echo "llama.cpp ready."
-        else
-            echo "FATAL: llama.cpp failed to start after 180s"
-            echo "Last log lines:"
-            tail -20 /tmp/llama.log 2>/dev/null
-            exit 1
+    LLAMA_READY=0
+    for i in $(seq 1 36); do
+        if curl -s http://127.0.0.1:8002/v1/models > /dev/null 2>&1; then
+            LLAMA_READY=1
+            break
         fi
+        sleep 5
+    done
+    if [ "$LLAMA_READY" = "1" ]; then
+        echo "llama.cpp ready."
     else
-        echo "  llama.cpp starting in background (Groq fallback active)"
+        echo "FATAL: llama.cpp failed to start after 180s"
+        echo "Last log lines:"
+        tail -20 /tmp/llama.log 2>/dev/null
+        exit 1
     fi
 fi
 

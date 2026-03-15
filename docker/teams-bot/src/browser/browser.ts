@@ -1,0 +1,107 @@
+import { BrowserContext, chromium } from '@playwright/test'
+import { formatError } from '../utils/Logger'
+
+export async function openBrowser(
+    slowMo: boolean = false,
+): Promise<{ browser: BrowserContext }> {
+    // Resolution configuration from environment variable
+    // Defaults to 720p if RESOLUTION is not set or invalid
+    const resolution = process.env.RESOLUTION || '720'
+    const { width, height } =
+        resolution === '1080'
+            ? { width: 1920, height: 1080 }
+            : { width: 1280, height: 720 }
+
+    // Window size must match Xvfb display size (includes browser UI ~140px)
+    // Xvfb is 1280x860 for 720p or 1920x1220 for 1080p
+    const windowWidth = width
+    const windowHeight = resolution === '1080' ? 1220 : 860
+
+    try {
+        console.log('Launching persistent context with exact extension args...')
+
+        // Get Chrome path from environment variable or use default
+        const chromePath = process.env.CHROME_PATH || '/usr/bin/google-chrome'
+        console.log(`🔍 Using Chrome path: ${chromePath}`)
+
+        const context = await chromium.launchPersistentContext('', {
+            headless: false,
+            viewport: { width, height },
+            executablePath: chromePath,
+            locale: 'en-US', // Set locale for Playwright context
+            args: [
+                // Window size and position - must match Xvfb display exactly
+                `--window-size=${windowWidth},${windowHeight}`,
+                '--window-position=0,0',
+
+                // Security configurations
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--lang=en-US', // Force English language with region code
+                '--accept-lang=en-US,en', // Accept English for HTTP requests
+
+                // ========================================
+                // AUDIO CONFIGURATION FOR PULSEAUDIO
+                // ========================================
+                '--use-pulseaudio', // Force Chromium to use PulseAudio
+                '--enable-audio-service-sandbox=false', // Disable audio service sandbox for virtual devices
+                '--audio-buffer-size=2048', // Set buffer size for better audio handling
+                '--disable-features=AudioServiceSandbox', // Additional sandbox disable
+                '--autoplay-policy=no-user-gesture-required', // Allow autoplay for meeting platforms
+
+                // WebRTC optimizations (required for meeting audio/video capture)
+                '--disable-rtc-smoothness-algorithm',
+                '--disable-webrtc-hw-decoding',
+                '--disable-webrtc-hw-encoding',
+                '--enable-webrtc-capture-audio', // Ensure WebRTC can capture audio
+                '--force-webrtc-ip-handling-policy=default', // Better WebRTC handling
+
+                // Performance and resource management optimizations
+                '--disable-blink-features=AutomationControlled',
+                '--disable-background-timer-throttling',
+                '--enable-features=SharedArrayBuffer',
+                '--memory-pressure-off', // Disable memory pressure handling for consistent performance
+                '--max_old_space_size=4096', // Increase V8 heap size to 4GB for large meetings
+                '--disable-background-networking', // Reduce background network activity
+                '--disable-features=TranslateUI', // Disable translation features to save resources
+                '--disable-features=AutofillServerCommunication', // Disable autofill to reduce network usage
+                '--disable-component-extensions-with-background-pages', // Reduce background extension overhead
+                '--disable-default-apps', // Disable default Chrome apps
+                '--renderer-process-limit=4', // Limit renderer processes to prevent resource exhaustion
+                '--disable-ipc-flooding-protection', // Improve IPC performance for high-frequency operations
+                '--aggressive-cache-discard', // Enable aggressive cache management for memory efficiency
+                '--disable-features=MediaRouter', // Disable media router for reduced overhead
+
+                // Certificate and security optimizations for meeting platforms
+                '--ignore-certificate-errors',
+                '--allow-insecure-localhost',
+                '--disable-blink-features=TrustedDOMTypes',
+                '--disable-features=TrustedScriptTypes',
+                '--disable-features=TrustedHTML',
+
+                // Additional audio debugging (remove in production)
+                '--enable-logging=stderr',
+                '--log-level=1',
+                '--vmodule=*audio*=3', // Enable audio debug logging
+
+                // Virtual camera injection (Y4M FIFO)
+                ...(process.env.CAMERA_PIPE_PATH ? [
+                    '--use-fake-device-for-media-stream',
+                    `--use-file-for-fake-video-capture=${process.env.CAMERA_PIPE_PATH}`,
+                ] : []),
+            ],
+            slowMo: slowMo ? 100 : undefined,
+            permissions: ['microphone', 'camera'],
+            ignoreHTTPSErrors: true,
+            acceptDownloads: true,
+            bypassCSP: true,
+            timeout: 120000,
+        })
+
+        console.log('✅ Chromium launched with PulseAudio configuration')
+        return { browser: context }
+    } catch (error) {
+        console.error('Failed to open browser:', formatError(error))
+        throw error
+    }
+}

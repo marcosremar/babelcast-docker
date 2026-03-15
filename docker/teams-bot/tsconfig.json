@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "allowJs": true,
+    "importHelpers": true,
+    "jsx": "react",
+    "strict": true,
+    "sourceMap": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noImplicitAny": false,
+    "noImplicitThis": false,
+    "resolveJsonModule": true,
+    "strictNullChecks": false,
+    "esModuleInterop": true,
+    "types": ["jest", "node"],
+    "outDir": "./build"
+  },
+  "include": [
+    "src/**/*",
+    "__tests__/**/*",
+    "jest.config.js",
+    "jest.setup.ts"
+, "sandbox/SystemDiagnostic.ts"  ],
+  "exclude": ["node_modules"]
+}
+  

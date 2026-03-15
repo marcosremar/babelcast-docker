@@ -5,12 +5,12 @@
 #   8080 — nginx (external, gateway-facing)
 #   8081 — orchestrator (FastAPI, internal)
 #   8082 — meet-teams-bot (Node.js, internal, patched from 8080)
-#   8000 — translation pipeline (Whisper + Groq, internal)
+#   8000 — translation pipeline (Whisper + local LLM, internal)
 #
 # nginx starts FIRST so the gateway health-check passes immediately.
 
 set -e
-echo "=== BabelCast All-in-One (Groq Cloud) ==="
+echo "=== BabelCast All-in-One ==="
 echo "Python: $(python3 --version 2>&1)"
 echo "Node:   $(node --version 2>&1)"
 echo "GPU:    $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'none')"
@@ -68,18 +68,49 @@ Xvfb :99 -screen 0 1280x860x24 -ac +extension GLX +render -noreset -nolisten tcp
 sleep 2
 unclutter -display :99 -idle 0 -root &
 
-pulseaudio --start --log-target=stderr --log-level=error &
+pulseaudio --start --exit-idle-time=-1 --log-target=stderr --log-level=error
 sleep 3
 if ! pactl info >/dev/null 2>&1; then
-    pulseaudio --kill || true; sleep 1
-    pulseaudio --start --log-target=stderr --log-level=error &
+    pulseaudio --kill 2>/dev/null || true; sleep 1
+    pulseaudio --start --exit-idle-time=-1 --log-target=stderr --log-level=error
     sleep 3
 fi
 pactl load-module module-null-sink sink_name=virtual_speaker \
     sink_properties=device.description=Virtual_Speaker 2>/dev/null || true
-pactl load-module module-virtual-source source_name=virtual_mic 2>/dev/null || true
+pactl load-module module-virtual-source source_name=virtual_mic \
+    master=virtual_speaker.monitor 2>/dev/null || true
 pactl set-default-sink virtual_speaker 2>/dev/null || true
 echo "  Display and audio ready"
+
+# ── Subtitle overlay on Xvfb (legenda traduzida na tela) ─────────────────────
+echo "" > /tmp/subtitle.txt
+DISPLAY=:99 SCREEN_W=1280 SCREEN_H=860 python3 /app/subtitle_overlay.py &
+SUBTITLE_PID=$!
+echo "  Subtitle overlay started (PID $SUBTITLE_PID)"
+
+# ── Virtual camera (Y4M FIFO → Chromium fake device) ─────────────────────────
+CAMERA_PIPE=/tmp/camera.y4m
+export CAMERA_PIPE_PATH=$CAMERA_PIPE
+rm -f $CAMERA_PIPE
+mkfifo $CAMERA_PIPE
+python3 /app/camera_mux.py $CAMERA_PIPE &
+CAMERA_PID=$!
+echo "  Camera mux started (PID $CAMERA_PID) — send webcam to TCP :9091"
+
+# Helper to ensure PulseAudio + virtual devices are running
+ensure_pulseaudio() {
+    if ! pactl info >/dev/null 2>&1; then
+        echo "[watchdog] PulseAudio died, restarting..."
+        pulseaudio --kill 2>/dev/null || true; sleep 1
+        pulseaudio --start --exit-idle-time=-1 --log-target=stderr --log-level=error
+        sleep 3
+        pactl load-module module-null-sink sink_name=virtual_speaker \
+            sink_properties=device.description=Virtual_Speaker 2>/dev/null || true
+        pactl load-module module-virtual-source source_name=virtual_mic \
+            master=virtual_speaker.monitor 2>/dev/null || true
+        pactl set-default-sink virtual_speaker 2>/dev/null || true
+    fi
+}
 
 # ── 4. Bot on :8082 ───────────────────────────────────────────────────────────
 echo "[4/5] Starting meet-teams-bot on :8082..."
@@ -106,9 +137,10 @@ echo "  pipeline:     :8000 (Whisper loading...)"
 echo ""
 
 # Watchdog
-trap "nginx -s stop; kill $ORCH_PID $BOT_PID $PIPELINE_PID 2>/dev/null; exit 0" SIGTERM SIGINT
+trap "nginx -s stop; kill $ORCH_PID $BOT_PID $PIPELINE_PID $CAMERA_PID $SUBTITLE_PID 2>/dev/null; exit 0" SIGTERM SIGINT
 
 while true; do
+    ensure_pulseaudio
     if ! kill -0 $ORCH_PID 2>/dev/null; then
         echo "[watchdog] Orchestrator crashed, restarting..."
         cd /app/orchestrator
@@ -118,11 +150,24 @@ while true; do
         python3 -m uvicorn main:app --host 0.0.0.0 --port 8081 --workers 1 --log-level info &
         ORCH_PID=$!
     fi
+    if ! kill -0 $BOT_PID 2>/dev/null; then
+        echo "[watchdog] Bot crashed, restarting..."
+        cd /app/bot
+        node build/src/main.js &
+        BOT_PID=$!
+        sleep 3
+    fi
     if ! kill -0 $PIPELINE_PID 2>/dev/null; then
         echo "[watchdog] Pipeline crashed, restarting..."
         cd /app/api
         python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1 --log-level warning &
         PIPELINE_PID=$!
+    fi
+    if ! kill -0 $CAMERA_PID 2>/dev/null; then
+        echo "[watchdog] Camera mux crashed, restarting..."
+        rm -f $CAMERA_PIPE; mkfifo $CAMERA_PIPE
+        python3 /app/camera_mux.py $CAMERA_PIPE &
+        CAMERA_PID=$!
     fi
     sleep 10
 done

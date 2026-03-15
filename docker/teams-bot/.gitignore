@@ -1,0 +1,38 @@
+[0-9a-zA-Z]*-[0-9a-zA-Z]*-[0-9a-zA-Z]*-[0-9a-zA-Z]*-[0-9a-zA-Z]*
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Coverage
+coverage
+
+# Transpiled files
+build/
+
+# VS Code
+.vscode
+!.vscode/tasks.js
+
+# JetBrains IDEs
+.idea/
+
+# Optional npm cache directory
+.npm
+
+# Prevent yarn usage (project uses npm)
+yarn.lock
+
+# Optional eslint cache
+.eslintcache
+
+# Misc
+.DS_Store
+buildInfo.json
+
+# Backup files
+*.bak

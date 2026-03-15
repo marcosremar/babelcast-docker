@@ -4,7 +4,6 @@
 # Usage:
 #   ./build-local.sh
 #   docker run -p 8080:8080 \
-#     -e CONF_GROQ_API_KEY=gsk_... \
 #     -e CONF_SOURCE_LANG=pt \
 #     -e CONF_TARGET_LANG=en \
 #     babelcast-local
@@ -44,7 +43,6 @@ echo "=== Build complete ==="
 echo ""
 echo "Run with:"
 echo "  docker run -p 8080:8080 \\"
-echo "    -e CONF_GROQ_API_KEY=gsk_... \\"
 echo "    -e CONF_SOURCE_LANG=pt \\"
 echo "    -e CONF_TARGET_LANG=en \\"
 echo "    babelcast-local"

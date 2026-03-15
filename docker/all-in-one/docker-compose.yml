@@ -1,9 +1,9 @@
 version: '3.8'
 
-# BabelCast All-in-One Stack (Groq Cloud)
+# BabelCast All-in-One Stack
 #
 # Services:
-#   pipeline    — Whisper STT + Groq translation API (port 8000, GPU)
+#   pipeline    — Whisper STT + local LLM translation (port 8000, GPU)
 #   bot         — meet-teams-bot Chromium headless (internal port 8080)
 #   orchestrator — Gateway-facing proxy (external port 8080):
 #                  proxies /join → bot (injecting streaming_output),
@@ -13,7 +13,7 @@ version: '3.8'
 # It polls GET /transcripts and POSTs /join / /stop_record.
 #
 # Usage:
-#   cp .env.example .env   # fill in CONF_GROQ_API_KEY
+#   cp .env.example .env
 #   docker compose up -d
 #
 # GPU: requires nvidia-container-toolkit on host (for pipeline service)
@@ -22,7 +22,7 @@ services:
 
   # ── Translation pipeline ─────────────────────────────────────────────────────
   pipeline:
-    image: marcosremar/babelcast-groq:latest
+    image: marcosremar/babelcast-mistral:latest
     deploy:
       resources:
         reservations:
@@ -31,10 +31,8 @@ services:
               count: 1
               capabilities: [gpu]
     environment:
-      CONF_GROQ_API_KEY: ${CONF_GROQ_API_KEY}
       CONF_SOURCE_LANG:  ${CONF_SOURCE_LANG:-pt}
       CONF_TARGET_LANG:  ${CONF_TARGET_LANG:-en}
-      CONF_LLM_MODEL:    groq
       BABELCAST_HOT_UPDATE: ${BABELCAST_HOT_UPDATE:-1}
       HF_TOKEN:          ${HF_TOKEN:-}
     volumes:

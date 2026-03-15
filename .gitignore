@@ -1,1 +1,4 @@
 docker/all-in-one/orchestrator/__pycache__/
+__pycache__/
+.DS_Store
+__pycache__/

@@ -2,6 +2,11 @@
 # BabelCast Groq — Boot script (no local LLM needed)
 # Uses Groq Cloud API for translation instead of llama.cpp
 
+echo "WARNING: This script is deprecated. GPU pods no longer use cloud API keys."
+echo "All cloud fallback routing is handled by the AI Gateway."
+echo "Use start.sh instead."
+echo ""
+
 echo "=== BabelCast Translation Pipeline (Groq Cloud) ==="
 echo "Python: $(python3 --version 2>&1)"
 echo "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'none')"
