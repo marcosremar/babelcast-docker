@@ -82,7 +82,7 @@ def _ensure_compat():
     """Run the compat patch once, lazily (not at import time).
 
     This avoids crashing the server on startup when torchvision is broken
-    (e.g. pyannote installed CPU-only torchvision over CUDA build).
+    (e.g. a dependency installed CPU-only torchvision over CUDA build).
     """
     global _compat_patched
     if not _compat_patched:
@@ -121,11 +121,16 @@ class TTSService:
         if self._is_base_model:
             raise RuntimeError("Base model does not support preset speakers. Use synthesize_clone().")
 
-        logger.debug("TTS synthesize: speaker=%s lang=%s text='%s'", speaker, language, text[:80])
+        # Limit max_new_tokens based on text length to prevent infinite generation.
+        # ~12 tokens per character at 12Hz codec = ~0.08s per char. Cap at 1024.
+        max_tokens = min(1024, max(128, len(text) * 15))
+        logger.debug("TTS synthesize: speaker=%s lang=%s max_tokens=%d text='%s'",
+                      speaker, language, max_tokens, text[:80])
         wavs, sr = self._model.generate_custom_voice(
             text=text,
             speaker=speaker,
             language=language,
+            max_new_tokens=max_tokens,
         )
 
         buffer = io.BytesIO()
@@ -141,12 +146,15 @@ class TTSService:
         if self._is_base_model:
             raise RuntimeError("Base model does not support preset speakers. Use synthesize_clone_streaming().")
 
-        logger.debug("TTS streaming: speaker=%s lang=%s text='%s'", speaker, language, text[:80])
+        max_tokens = min(1024, max(128, len(text) * 15))
+        logger.debug("TTS streaming: speaker=%s lang=%s max_tokens=%d text='%s'",
+                      speaker, language, max_tokens, text[:80])
         for audio_chunk, sr, timing in self._model.generate_custom_voice_streaming(
             text=text,
             speaker=speaker,
             language=language,
             chunk_size=chunk_size,
+            max_new_tokens=max_tokens,
         ):
             yield audio_chunk, sr
 
@@ -177,11 +185,13 @@ class TTSService:
         logger.debug("TTS clone: lang=%s ref=%.1fs text='%s'",
                       language, len(ref_audio) / 16000, text[:80])
         try:
+            max_tokens = min(1024, max(128, len(text) * 15))
             wavs, sr = self._model.generate_voice_clone(
                 text=text,
                 language=language,
                 ref_audio=ref_path,
                 ref_text=ref_text,
+                max_new_tokens=max_tokens,
             )
         finally:
             import os

@@ -23,9 +23,9 @@ class Settings(BaseSettings):
     voice_clone_min_audio_s: float = 15.0
     # Speaker verification — only collect audio from the target speaker
     speaker_verify_enabled: bool = True
-    speaker_verify_threshold: float = 0.60
+    speaker_verify_threshold: float = 0.75
     speaker_verify_device: str = "cpu"
-    # HuggingFace token (for pyannote gated models)
+    # HuggingFace token (optional — ECAPA-TDNN doesn't need it, kept for other models)
     # Set via CONF_HF_TOKEN or HF_TOKEN
     hf_token: str = _default_hf_token()
 
