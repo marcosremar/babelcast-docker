@@ -6,10 +6,47 @@ Supports streaming chunk generation for low-latency audio output.
 Uses CustomVoice model for preset speakers + voice cloning.
 """
 
-# NOTE: transformers 4.57.3 required for correct audio output.
-# transformers 5.x produces garbled/silent audio (see QwenLM/Qwen3-TTS#237).
-# Compatibility patches (ROPE, DynamicCache, pad_token_id) are applied to the
-# installed packages via sed in modal_tts.py and start.sh, NOT here.
+# Early patches — MUST run before any transformers model import
+# These fix transformers 4.57.3 compat issues with qwen-tts 0.1.1
+try:
+    from transformers import PretrainedConfig
+    _orig_init = PretrainedConfig.__init__
+    def _patched_init(self, *a, **kw):
+        _orig_init(self, *a, **kw)
+        if not hasattr(self, 'pad_token_id') or self.pad_token_id is None:
+            self.pad_token_id = 0
+    PretrainedConfig.__init__ = _patched_init
+except Exception:
+    pass
+
+try:
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+    if "default" not in ROPE_INIT_FUNCTIONS:
+        import torch as _t
+        def _dr(c, d, **kw):
+            b = c.rope_theta
+            p = getattr(c, "partial_rotary_factor", 1.0)
+            h = getattr(c, "head_dim", c.hidden_size // c.num_attention_heads)
+            dim = int(h * p)
+            return 1.0 / (b ** (_t.arange(0, dim, 2, dtype=_t.int64).float().to(d) / dim)), 1.0
+        ROPE_INIT_FUNCTIONS["default"] = _dr
+except Exception:
+    pass
+
+try:
+    from transformers.cache_utils import DynamicCache
+    if not hasattr(DynamicCache, "__getitem__"):
+        DynamicCache.__getitem__ = lambda s, i: (s.layers[i].keys, s.layers[i].values) if hasattr(s, "layers") else (s.key_cache[i], s.value_cache[i])
+        DynamicCache.__len__ = lambda s: len(s.layers) if hasattr(s, "layers") else len(s.key_cache)
+except Exception:
+    pass
+
+try:
+    import transformers.utils.generic as _tg
+    if not hasattr(_tg, 'check_model_inputs'):
+        _tg.check_model_inputs = lambda func=None: func if func is not None else (lambda f: f)
+except Exception:
+    pass
 
 import io
 import logging
