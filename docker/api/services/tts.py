@@ -120,18 +120,26 @@ class TTSService:
 
         # Use official qwen_tts (reliable audio quality) instead of faster_qwen3_tts
         # (CUDA graphs produce garbled/incomprehensible audio with transformers 4.57.x patches)
-        try:
-            from qwen_tts import QwenTTS
-            logger.info(f"Loading qwen-tts official ({self._model_id})...")
-            self._model = QwenTTS.from_pretrained(self._model_id)
-            self._use_official = True
-            logger.info("qwen-tts official loaded (no CUDA graphs). Base model: %s", self._is_base_model)
-        except Exception as e:
-            logger.warning("qwen-tts official failed (%s), falling back to faster-qwen3-tts", e)
-            from faster_qwen3_tts import FasterQwen3TTS
-            self._model = FasterQwen3TTS.from_pretrained(self._model_id)
-            self._use_official = False
-            logger.info("faster-qwen3-tts loaded (CUDA graphs). Base model: %s", self._is_base_model)
+        from qwen_tts import QwenTTS
+        logger.info(f"Loading qwen-tts ({self._model_id})...")
+        self._model = QwenTTS.from_pretrained(self._model_id)
+
+        # Fix: set pad_token_id on ALL config objects (missing in transformers 4.57.3)
+        for attr_name in dir(self._model):
+            obj = getattr(self._model, attr_name, None)
+            if obj is not None and hasattr(obj, 'rope_theta') and not hasattr(obj, 'pad_token_id'):
+                obj.pad_token_id = 0
+                logger.debug("Patched %s.pad_token_id = 0", attr_name)
+        # Also patch nested model configs
+        if hasattr(self._model, 'model'):
+            m = self._model.model
+            for attr_name in dir(m):
+                obj = getattr(m, attr_name, None)
+                if obj is not None and hasattr(obj, 'rope_theta') and not hasattr(obj, 'pad_token_id'):
+                    obj.pad_token_id = 0
+                    logger.debug("Patched model.%s.pad_token_id = 0", attr_name)
+
+        logger.info("qwen-tts loaded. Base model: %s", self._is_base_model)
 
     @property
     def is_base_model(self) -> bool:
