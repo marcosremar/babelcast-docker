@@ -120,25 +120,22 @@ class TTSService:
 
         # Use official qwen_tts (reliable audio quality) instead of faster_qwen3_tts
         # (CUDA graphs produce garbled/incomprehensible audio with transformers 4.57.x patches)
+        # Fix: patch pad_token_id on ALL config classes before loading model
+        # Qwen3TTSTalkerConfig is created during generate_custom_voice(), not from_pretrained()
+        from transformers import PretrainedConfig
+        if not hasattr(PretrainedConfig, '_orig_pad_token_id'):
+            _orig_init = PretrainedConfig.__init__
+            def _patched_init(self_cfg, *args, **kwargs):
+                _orig_init(self_cfg, *args, **kwargs)
+                if not hasattr(self_cfg, 'pad_token_id') or self_cfg.pad_token_id is None:
+                    self_cfg.pad_token_id = 0
+            PretrainedConfig.__init__ = _patched_init
+            PretrainedConfig._orig_pad_token_id = True
+            logger.debug("Patched PretrainedConfig.__init__ to set pad_token_id=0")
+
         from qwen_tts import Qwen3TTSModel
         logger.info(f"Loading qwen-tts ({self._model_id})...")
         self._model = Qwen3TTSModel.from_pretrained(self._model_id)
-
-        # Fix: set pad_token_id on ALL config objects (missing in transformers 4.57.3)
-        for attr_name in dir(self._model):
-            obj = getattr(self._model, attr_name, None)
-            if obj is not None and hasattr(obj, 'rope_theta') and not hasattr(obj, 'pad_token_id'):
-                obj.pad_token_id = 0
-                logger.debug("Patched %s.pad_token_id = 0", attr_name)
-        # Also patch nested model configs
-        if hasattr(self._model, 'model'):
-            m = self._model.model
-            for attr_name in dir(m):
-                obj = getattr(m, attr_name, None)
-                if obj is not None and hasattr(obj, 'rope_theta') and not hasattr(obj, 'pad_token_id'):
-                    obj.pad_token_id = 0
-                    logger.debug("Patched model.%s.pad_token_id = 0", attr_name)
-
         logger.info("qwen-tts loaded. Base model: %s", self._is_base_model)
 
     @property
