@@ -16,6 +16,19 @@ except Exception:
     pass
 
 try:
+    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS as _ROPE
+    if "default" not in _ROPE:
+        import torch as _t
+        def _dr(c, d, **kw):
+            b = c.rope_theta; p = getattr(c, "partial_rotary_factor", 1.0)
+            h = getattr(c, "head_dim", c.hidden_size // c.num_attention_heads)
+            dim = int(h * p)
+            return 1.0 / (b ** (_t.arange(0, dim, 2, dtype=_t.int64).float().to(d) / dim)), 1.0
+        _ROPE["default"] = _dr
+except Exception:
+    pass
+
+try:
     from transformers import PretrainedConfig as _PC
     _pc_orig_init = _PC.__init__
     def _pc_patched_init(self, *a, **kw):
