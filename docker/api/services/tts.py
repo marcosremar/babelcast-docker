@@ -120,9 +120,9 @@ class TTSService:
 
         # Use official qwen_tts (reliable audio quality) instead of faster_qwen3_tts
         # (CUDA graphs produce garbled/incomprehensible audio with transformers 4.57.x patches)
-        from qwen_tts import QwenTTS
+        from qwen_tts import Qwen3TTSModel
         logger.info(f"Loading qwen-tts ({self._model_id})...")
-        self._model = QwenTTS.from_pretrained(self._model_id)
+        self._model = Qwen3TTSModel.from_pretrained(self._model_id)
 
         # Fix: set pad_token_id on ALL config objects (missing in transformers 4.57.3)
         for attr_name in dir(self._model):
