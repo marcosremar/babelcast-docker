@@ -52,6 +52,17 @@ def get_tts() -> TTSService:
 
 app = FastAPI(title="BabelCast Qwen3-TTS", version="1.0.0")
 
+@app.on_event("startup")
+async def startup_load_models():
+    """Pre-load both TTS models at startup (avoids timeout on first clone request)."""
+    import asyncio
+    loop = asyncio.get_running_loop()
+    def _load():
+        tts = get_tts()
+        tts.load()
+        logger.info("Both TTS models pre-loaded at startup")
+    await loop.run_in_executor(_executor, _load)
+
 
 @app.get("/health")
 async def health():
