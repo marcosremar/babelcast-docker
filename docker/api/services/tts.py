@@ -22,18 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_transformers_compat():
-    """Minimal patch: only check_model_inputs no-op (required for qwen-tts 0.1.1).
+    """All patches needed for qwen-tts 0.1.1 + transformers 4.57.3.
 
-    ALL_ATTENTION_FUNCTIONS and GradientCheckpointingLayer patches were
-    corrupting the audio decoder output — DO NOT re-enable them.
+    These patches were previously blamed for corrupting audio, but the real
+    cause was faster-qwen3-tts CUDA graphs. With official qwen_tts (no CUDA
+    graphs), these patches are safe and required.
     """
-    import transformers.utils.generic as _tg
-    if not hasattr(_tg, 'check_model_inputs'):
-        _tg.check_model_inputs = lambda func=None: func if func is not None else (lambda f: f)
-        logger.debug("Patched check_model_inputs (no-op)")
-    return
-
-def _patch_transformers_compat_DISABLED():
     """Backport transformers 5.x symbols to 4.57.x for qwen-tts 0.1.1.
 
     qwen-tts 0.1.1 code imports symbols from transformers 5.x
