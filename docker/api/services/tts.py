@@ -3,9 +3,16 @@
 5-6x faster than the official qwen-tts package on RTX 4090.
 Supports streaming chunk generation for low-latency audio output.
 
-Uses the Base model for voice cloning from reference audio, with fallback
-to preset speakers when no voice profile is available.
+Uses CustomVoice model for preset speakers + voice cloning.
 """
+
+# Fix: transformers 5.x removed pad_token_id from config — must patch before any model import
+try:
+    from transformers import PretrainedConfig
+    if not hasattr(PretrainedConfig, 'pad_token_id') or PretrainedConfig.pad_token_id is None:
+        PretrainedConfig.pad_token_id = 0
+except Exception:
+    pass
 
 import io
 import logging
