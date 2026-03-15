@@ -178,6 +178,20 @@ class TTSService:
         sf.write(tmp.name, ref_audio, 16000, format="WAV")
         return tmp.name
 
+    def synthesize_clone_from_path(self, text: str, language: str,
+                                   ref_path: str, ref_text: str) -> bytes:
+        """Synthesize speech cloning from a WAV file path. Returns WAV bytes."""
+        self._ensure_base_model()
+        log.debug("TTS clone from path: lang=%s ref=%s text='%s'", language, ref_path, text[:80])
+        wavs, sr = self._base_model.generate_voice_clone(
+            text=text, language=language,
+            ref_audio=ref_path, ref_text=ref_text,
+        )
+        buf = io.BytesIO()
+        sf.write(buf, wavs[0], sr, format="WAV", subtype="PCM_16")
+        buf.seek(0)
+        return buf.read()
+
     def synthesize_clone(self, text: str, language: str,
                          ref_audio: np.ndarray, ref_text: str) -> bytes:
         """Synthesize speech cloning a voice. Returns WAV bytes.
