@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     whisper_compute_type: str = "float16"
     llama_base_url: str = "http://127.0.0.1:8002"
     llm_model: str = "translategemma"  # "translategemma" or "mistral"
-    tts_model_id: str = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"  # 1.7B for better audio quality
+    tts_model_id: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"  # 0.6B — faster, works without CUDA graphs
     tts_device: str = "cuda:0"
     tts_enabled: bool = True
     voice_clone_enabled: bool = True
