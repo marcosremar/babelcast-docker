@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_transformers_compat():
+    """DISABLED — these patches were corrupting audio output.
+    qwen-tts 0.1.1 + transformers 4.57.3 works natively without patches.
+    Only fix_mistral_regex needs to be applied (done via sed in modal_tts.py).
+    """
+    return  # SKIP ALL PATCHES
+
+def _patch_transformers_compat_DISABLED():
     """Backport transformers 5.x symbols to 4.57.x for qwen-tts 0.1.1.
 
     qwen-tts 0.1.1 code imports symbols from transformers 5.x
