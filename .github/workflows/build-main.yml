@@ -6,6 +6,7 @@ on:
     paths:
       - 'docker/Dockerfile'
       - 'docker/start.sh'
+      - 'docker/api/**'
       - 'docker/requirements.txt'
       - '.github/workflows/build-main.yml'
   workflow_dispatch:
