@@ -164,9 +164,14 @@ class TTSService:
             PretrainedConfig._orig_pad_token_id = True
             logger.debug("Patched PretrainedConfig.__init__ to set pad_token_id=0")
 
+        import torch
         from qwen_tts import Qwen3TTSModel
-        logger.info(f"Loading qwen-tts ({self._model_id})...")
-        self._model = Qwen3TTSModel.from_pretrained(self._model_id)
+        logger.info(f"Loading qwen-tts ({self._model_id}) on {self._device}...")
+        self._model = Qwen3TTSModel.from_pretrained(
+            self._model_id,
+            device_map=self._device,
+            dtype=torch.bfloat16,
+        )
         logger.info("qwen-tts loaded. Base model: %s", self._is_base_model)
 
     @property
