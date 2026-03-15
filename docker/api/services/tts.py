@@ -166,7 +166,8 @@ class TTSService:
 
         # Limit max_new_tokens based on text length to prevent infinite generation.
         # ~12 tokens per character at 12Hz codec = ~0.08s per char. Cap at 1024.
-        max_tokens = min(1024, max(128, len(text) * 15))
+        # ~12Hz codec: ~1 token per character of text, with minimum for short phrases
+        max_tokens = min(512, max(64, len(text) * 2))
         logger.debug("TTS synthesize: speaker=%s lang=%s max_tokens=%d text='%s'",
                       speaker, language, max_tokens, text[:80])
         wavs, sr = self._model.generate_custom_voice(
@@ -189,7 +190,8 @@ class TTSService:
         if self._is_base_model:
             raise RuntimeError("Base model does not support preset speakers. Use synthesize_clone_streaming().")
 
-        max_tokens = min(1024, max(128, len(text) * 15))
+        # ~12Hz codec: ~1 token per character of text, with minimum for short phrases
+        max_tokens = min(512, max(64, len(text) * 2))
         logger.debug("TTS streaming: speaker=%s lang=%s max_tokens=%d text='%s'",
                       speaker, language, max_tokens, text[:80])
         for audio_chunk, sr, timing in self._model.generate_custom_voice_streaming(
@@ -228,7 +230,8 @@ class TTSService:
         logger.debug("TTS clone: lang=%s ref=%.1fs text='%s'",
                       language, len(ref_audio) / 16000, text[:80])
         try:
-            max_tokens = min(1024, max(128, len(text) * 15))
+            # ~12Hz codec: ~1 token per character of text, with minimum for short phrases
+        max_tokens = min(512, max(64, len(text) * 2))
             wavs, sr = self._model.generate_voice_clone(
                 text=text,
                 language=language,
