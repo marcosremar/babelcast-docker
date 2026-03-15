@@ -4,12 +4,25 @@ Uses Qwen3TTSModel with bfloat16. Only ONE patch: check_model_inputs no-op.
 DO NOT patch pad_token_id, ROPE, DynamicCache, or ALL_ATTENTION_FUNCTIONS.
 """
 
-# ONLY patch: check_model_inputs no-op — required because qwen_tts imports it on first load
-# DO NOT add pad_token_id, ROPE, DynamicCache, or ALL_ATTENTION_FUNCTIONS patches
+# Two patches needed BEFORE qwen_tts import:
+# 1. check_model_inputs no-op (qwen_tts imports it, transformers 4.57.3 lacks it)
+# 2. PretrainedConfig.__init_subclass__ to auto-set pad_token_id = eos_token_id
+#    (NOT pad_token_id=0 which corrupts codec. Use eos_token_id=2150)
 try:
     import transformers.utils.generic as _tg
     if not hasattr(_tg, 'check_model_inputs'):
         _tg.check_model_inputs = lambda func=None: func if func is not None else (lambda f: f)
+except Exception:
+    pass
+
+try:
+    from transformers import PretrainedConfig as _PC
+    _pc_orig_init = _PC.__init__
+    def _pc_patched_init(self, *a, **kw):
+        _pc_orig_init(self, *a, **kw)
+        if not hasattr(self, 'pad_token_id') or self.pad_token_id is None:
+            self.pad_token_id = getattr(self, 'eos_token_id', 2150) or 2150
+    _PC.__init__ = _pc_patched_init
 except Exception:
     pass
 
