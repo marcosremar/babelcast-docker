@@ -30,6 +30,20 @@ try:
 except Exception:
     pass
 
+# Fix: DynamicCache missing __getitem__/__len__ in some transformers versions
+try:
+    from transformers.cache_utils import DynamicCache
+    if not hasattr(DynamicCache, "__getitem__"):
+        def _dc_getitem(self, idx):
+            if hasattr(self, "layers"):
+                ly = self.layers[idx]
+                return (ly.keys, ly.values)
+            return (self.key_cache[idx], self.value_cache[idx])
+        DynamicCache.__getitem__ = _dc_getitem
+        DynamicCache.__len__ = lambda self: len(self.layers) if hasattr(self, "layers") else len(self.key_cache)
+except Exception:
+    pass
+
 import io
 import logging
 import tempfile
