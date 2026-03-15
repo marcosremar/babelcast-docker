@@ -105,6 +105,12 @@ class TTSService:
 
         logger.info(f"Loading faster-qwen3-tts ({self._model_id})...")
         self._model = FasterQwen3TTS.from_pretrained(self._model_id)
+        # Fix: transformers 5.x removed pad_token_id from config — set it manually
+        for cfg_attr in ('config', 'talker_config', 'thinker_config'):
+            cfg = getattr(self._model, cfg_attr, None)
+            if cfg is not None and not hasattr(cfg, 'pad_token_id'):
+                cfg.pad_token_id = 0
+                logger.debug("Patched %s.pad_token_id = 0", cfg_attr)
         logger.info("faster-qwen3-tts loaded (CUDA graphs enabled). Base model: %s", self._is_base_model)
 
     @property
