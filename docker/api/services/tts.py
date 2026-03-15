@@ -146,7 +146,7 @@ class TTSService:
         )
 
         buffer = io.BytesIO()
-        sf.write(buffer, wavs[0], sr, format="WAV")
+        sf.write(buffer, wavs[0], sr, format="WAV", subtype="PCM_16")
         buffer.seek(0)
         return buffer.read()
 
@@ -212,7 +212,7 @@ class TTSService:
             os.unlink(ref_path)
 
         buffer = io.BytesIO()
-        sf.write(buffer, wavs[0], sr, format="WAV")
+        sf.write(buffer, wavs[0], sr, format="WAV", subtype="PCM_16")
         buffer.seek(0)
         return buffer.read()
 
