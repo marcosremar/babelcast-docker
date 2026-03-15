@@ -50,34 +50,70 @@ log = logging.getLogger(__name__)
 
 
 class TTSService:
-    """Text-to-speech service with preset speakers and voice cloning."""
+    """Text-to-speech service with preset speakers and voice cloning.
+
+    Loads TWO models:
+      - CustomVoice: loaded immediately for preset speakers (Ryan, Vivian, etc.)
+      - Base: lazy-loaded on first clone request (voice cloning via ref audio + ref text)
+    """
+
+    # Model IDs
+    _CUSTOM_VOICE_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    _BASE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
 
     def __init__(self, model_id: str, device: str):
         self._model_id = model_id
         self._device = device
+        # Dual-model: CustomVoice for presets, Base for cloning
+        self._custom_model = None
+        self._base_model = None
+        # Legacy compat: keep _model pointing to the custom model
         self._model = None
         self._is_base_model = "Base" in model_id
 
-    def load(self):
-        import torch
-        from qwen_tts import Qwen3TTSModel
-
-        log.info("Loading qwen-tts (%s) on %s with bfloat16...", self._model_id, self._device)
-        self._model = Qwen3TTSModel.from_pretrained(
-            self._model_id,
-            device_map=self._device,
-            dtype=torch.bfloat16,
-        )
-        # Fix: set pad_token_id = eos_token_id on ALL internal configs
-        # The raw test auto-sets this in generate(), but server path needs it explicit
+    def _fix_pad_token(self, model) -> None:
+        """Fix: set pad_token_id = eos_token_id on ALL internal configs."""
         eos_id = 2150  # Qwen3-TTS eos_token_id
-        for obj in [self._model] + [getattr(self._model, a, None) for a in dir(self._model)]:
+        for obj in [model] + [getattr(model, a, None) for a in dir(model)]:
             if obj is not None and hasattr(obj, 'config'):
                 cfg = obj.config if hasattr(obj.config, 'pad_token_id') or hasattr(obj.config, 'eos_token_id') else None
                 if cfg is not None and (not hasattr(cfg, 'pad_token_id') or cfg.pad_token_id is None):
                     cfg.pad_token_id = getattr(cfg, 'eos_token_id', eos_id) or eos_id
                     log.debug("Set %s.config.pad_token_id = %d", type(obj).__name__, cfg.pad_token_id)
-        log.info("qwen-tts loaded. Speakers: %s", self._model.get_supported_speakers())
+
+    def load(self):
+        import torch
+        from qwen_tts import Qwen3TTSModel
+
+        # Always load CustomVoice first — presets work immediately
+        custom_id = self._CUSTOM_VOICE_ID
+        log.info("Loading qwen-tts CustomVoice (%s) on %s with bfloat16...", custom_id, self._device)
+        self._custom_model = Qwen3TTSModel.from_pretrained(
+            custom_id,
+            device_map=self._device,
+            dtype=torch.bfloat16,
+        )
+        # DO NOT call _fix_pad_token — transformers auto-sets pad_token_id correctly
+        self._model = self._custom_model  # legacy compat
+        log.info("CustomVoice loaded. Speakers: %s", self._custom_model.get_supported_speakers())
+
+    def _ensure_base_model(self):
+        """Lazy-load Base model only when cloning is first requested."""
+        if self._base_model is not None:
+            return
+        import torch
+        from qwen_tts import Qwen3TTSModel
+
+        log.info("Loading qwen-tts Base (%s) on %s with bfloat16 (first clone request)...",
+                 self._BASE_MODEL_ID, self._device)
+        self._base_model = Qwen3TTSModel.from_pretrained(
+            self._BASE_MODEL_ID,
+            device_map=self._device,
+            dtype=torch.bfloat16,
+        )
+        # DO NOT call _fix_pad_token on Base model — it corrupts voice cloning
+        # transformers auto-sets pad_token_id=eos_token_id=2150 correctly
+        log.info("Base model loaded — voice cloning ready")
 
     @property
     def is_base_model(self) -> bool:
@@ -87,16 +123,14 @@ class TTSService:
 
     def synthesize(self, text: str, language: str = "English", speaker: str = "Ryan") -> bytes:
         """Synthesize speech with a preset speaker. Returns WAV bytes."""
-        if self._model is None:
+        if self._custom_model is None:
             self.load()
-        if self._is_base_model:
-            raise RuntimeError("Base model requires voice cloning. Use synthesize_clone().")
 
         max_tokens = min(512, max(96, len(text) * 4))
         log.debug("TTS: speaker=%s lang=%s max_tokens=%d text='%s'",
                   speaker, language, max_tokens, text[:80])
 
-        wavs, sr = self._model.generate_custom_voice(
+        wavs, sr = self._custom_model.generate_custom_voice(
             text=text,
             speaker=speaker,
             language=language,
@@ -112,15 +146,13 @@ class TTSService:
     def synthesize_streaming(self, text: str, language: str = "English",
                              speaker: str = "Ryan", chunk_size: int = 8):
         """Yield (audio_chunk, sample_rate) tuples with a preset speaker."""
-        if self._model is None:
+        if self._custom_model is None:
             self.load()
-        if self._is_base_model:
-            raise RuntimeError("Base model requires voice cloning.")
 
         max_tokens = min(512, max(96, len(text) * 4))
         log.debug("TTS streaming: speaker=%s lang=%s text='%s'", speaker, language, text[:80])
 
-        for audio_chunk, sr, timing in self._model.generate_custom_voice_streaming(
+        for audio_chunk, sr, timing in self._custom_model.generate_custom_voice_streaming(
             text=text,
             speaker=speaker,
             language=language,
@@ -148,16 +180,18 @@ class TTSService:
 
     def synthesize_clone(self, text: str, language: str,
                          ref_audio: np.ndarray, ref_text: str) -> bytes:
-        """Synthesize speech cloning a voice. Returns WAV bytes."""
-        if self._model is None:
-            self.load()
+        """Synthesize speech cloning a voice. Returns WAV bytes.
+
+        Uses the Base model (lazy-loaded on first call).
+        """
+        self._ensure_base_model()
 
         ref_path = self._save_ref_audio(ref_audio)
         log.debug("TTS clone: lang=%s ref=%.1fs text='%s'",
                   language, len(ref_audio) / 16000, text[:80])
         try:
             max_tokens = min(512, max(96, len(text) * 4))
-            wavs, sr = self._model.generate_voice_clone(
+            wavs, sr = self._base_model.generate_voice_clone(
                 text=text,
                 language=language,
                 ref_audio=ref_path,
@@ -176,16 +210,18 @@ class TTSService:
     def synthesize_clone_streaming(self, text: str, language: str,
                                    ref_audio: np.ndarray, ref_text: str,
                                    chunk_size: int = 8):
-        """Yield (audio_chunk, sample_rate) tuples using a cloned voice."""
-        if self._model is None:
-            self.load()
+        """Yield (audio_chunk, sample_rate) tuples using a cloned voice.
+
+        Uses the Base model (lazy-loaded on first call).
+        """
+        self._ensure_base_model()
 
         ref_path = self._save_ref_audio(ref_audio)
         log.debug("TTS clone stream: lang=%s ref=%.1fs text='%s'",
                   language, len(ref_audio) / 16000, text[:80])
         try:
             max_tokens = min(512, max(96, len(text) * 4))
-            for audio_chunk, sr, timing in self._model.generate_voice_clone_streaming(
+            for audio_chunk, sr, timing in self._base_model.generate_voice_clone_streaming(
                 text=text,
                 language=language,
                 ref_audio=ref_path,
