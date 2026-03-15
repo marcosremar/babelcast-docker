@@ -4,7 +4,14 @@ Uses Qwen3TTSModel with bfloat16. Only ONE patch: check_model_inputs no-op.
 DO NOT patch pad_token_id, ROPE, DynamicCache, or ALL_ATTENTION_FUNCTIONS.
 """
 
-# NO patches — qwen-tts 0.1.1 + transformers 4.57.3 + torch 2.5.1 works natively
+# ONLY patch: check_model_inputs no-op — required because qwen_tts imports it on first load
+# DO NOT add pad_token_id, ROPE, DynamicCache, or ALL_ATTENTION_FUNCTIONS patches
+try:
+    import transformers.utils.generic as _tg
+    if not hasattr(_tg, 'check_model_inputs'):
+        _tg.check_model_inputs = lambda func=None: func if func is not None else (lambda f: f)
+except Exception:
+    pass
 
 import io
 import logging
