@@ -22,11 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_transformers_compat():
-    """DISABLED — these patches were corrupting audio output.
-    qwen-tts 0.1.1 + transformers 4.57.3 works natively without patches.
-    Only fix_mistral_regex needs to be applied (done via sed in modal_tts.py).
+    """Minimal patch: only check_model_inputs no-op (required for qwen-tts 0.1.1).
+
+    ALL_ATTENTION_FUNCTIONS and GradientCheckpointingLayer patches were
+    corrupting the audio decoder output — DO NOT re-enable them.
     """
-    return  # SKIP ALL PATCHES
+    import transformers.utils.generic as _tg
+    if not hasattr(_tg, 'check_model_inputs'):
+        _tg.check_model_inputs = lambda func=None: func if func is not None else (lambda f: f)
+        logger.debug("Patched check_model_inputs (no-op)")
+    return
 
 def _patch_transformers_compat_DISABLED():
     """Backport transformers 5.x symbols to 4.57.x for qwen-tts 0.1.1.
