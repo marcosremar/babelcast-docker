@@ -6,43 +6,10 @@ Supports streaming chunk generation for low-latency audio output.
 Uses CustomVoice model for preset speakers + voice cloning.
 """
 
-# Fix: transformers compatibility patches — must run before any model import
-try:
-    from transformers import PretrainedConfig
-    if not hasattr(PretrainedConfig, 'pad_token_id') or PretrainedConfig.pad_token_id is None:
-        PretrainedConfig.pad_token_id = 0
-except Exception:
-    pass
-
-# Fix: ROPE "default" init function removed in some transformers versions
-try:
-    from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
-    if "default" not in ROPE_INIT_FUNCTIONS:
-        import torch as _torch
-        def _default_rope(config, device, seq_len=None, **kw):
-            base = config.rope_theta
-            prf = getattr(config, "partial_rotary_factor", 1.0)
-            hd = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-            dim = int(hd * prf)
-            inv_freq = 1.0 / (base ** (_torch.arange(0, dim, 2, dtype=_torch.int64).float().to(device) / dim))
-            return inv_freq, 1.0
-        ROPE_INIT_FUNCTIONS["default"] = _default_rope
-except Exception:
-    pass
-
-# Fix: DynamicCache missing __getitem__/__len__ in some transformers versions
-try:
-    from transformers.cache_utils import DynamicCache
-    if not hasattr(DynamicCache, "__getitem__"):
-        def _dc_getitem(self, idx):
-            if hasattr(self, "layers"):
-                ly = self.layers[idx]
-                return (ly.keys, ly.values)
-            return (self.key_cache[idx], self.value_cache[idx])
-        DynamicCache.__getitem__ = _dc_getitem
-        DynamicCache.__len__ = lambda self: len(self.layers) if hasattr(self, "layers") else len(self.key_cache)
-except Exception:
-    pass
+# NOTE: transformers 4.57.3 required for correct audio output.
+# transformers 5.x produces garbled/silent audio (see QwenLM/Qwen3-TTS#237).
+# Compatibility patches (ROPE, DynamicCache, pad_token_id) are applied to the
+# installed packages via sed in modal_tts.py and start.sh, NOT here.
 
 import io
 import logging
