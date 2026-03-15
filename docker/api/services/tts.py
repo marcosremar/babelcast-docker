@@ -85,35 +85,26 @@ class TTSService:
         import torch
         from qwen_tts import Qwen3TTSModel
 
-        # Always load CustomVoice first — presets work immediately
+        # Load BOTH models at startup (Base model download takes ~2min, can't be lazy)
         custom_id = self._CUSTOM_VOICE_ID
-        log.info("Loading qwen-tts CustomVoice (%s) on %s with bfloat16...", custom_id, self._device)
+        log.info("Loading qwen-tts CustomVoice (%s) on %s...", custom_id, self._device)
         self._custom_model = Qwen3TTSModel.from_pretrained(
-            custom_id,
-            device_map=self._device,
-            dtype=torch.bfloat16,
+            custom_id, device_map=self._device, dtype=torch.bfloat16,
         )
-        # DO NOT call _fix_pad_token — transformers auto-sets pad_token_id correctly
-        self._model = self._custom_model  # legacy compat
+        self._model = self._custom_model
         log.info("CustomVoice loaded. Speakers: %s", self._custom_model.get_supported_speakers())
 
-    def _ensure_base_model(self):
-        """Lazy-load Base model only when cloning is first requested."""
-        if self._base_model is not None:
-            return
-        import torch
-        from qwen_tts import Qwen3TTSModel
-
-        log.info("Loading qwen-tts Base (%s) on %s with bfloat16 (first clone request)...",
+        log.info("Loading qwen-tts Base (%s) on %s (for voice cloning)...",
                  self._BASE_MODEL_ID, self._device)
         self._base_model = Qwen3TTSModel.from_pretrained(
-            self._BASE_MODEL_ID,
-            device_map=self._device,
-            dtype=torch.bfloat16,
+            self._BASE_MODEL_ID, device_map=self._device, dtype=torch.bfloat16,
         )
-        # DO NOT call _fix_pad_token on Base model — it corrupts voice cloning
-        # transformers auto-sets pad_token_id=eos_token_id=2150 correctly
         log.info("Base model loaded — voice cloning ready")
+
+    def _ensure_base_model(self):
+        if self._base_model is not None:
+            return
+        self.load()
 
     @property
     def is_base_model(self) -> bool:
