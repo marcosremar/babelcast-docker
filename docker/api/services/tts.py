@@ -42,6 +42,15 @@ class TTSService:
             device_map=self._device,
             dtype=torch.bfloat16,
         )
+        # Fix: set pad_token_id = eos_token_id on ALL internal configs
+        # The raw test auto-sets this in generate(), but server path needs it explicit
+        eos_id = 2150  # Qwen3-TTS eos_token_id
+        for obj in [self._model] + [getattr(self._model, a, None) for a in dir(self._model)]:
+            if obj is not None and hasattr(obj, 'config'):
+                cfg = obj.config if hasattr(obj.config, 'pad_token_id') or hasattr(obj.config, 'eos_token_id') else None
+                if cfg is not None and (not hasattr(cfg, 'pad_token_id') or cfg.pad_token_id is None):
+                    cfg.pad_token_id = getattr(cfg, 'eos_token_id', eos_id) or eos_id
+                    log.debug("Set %s.config.pad_token_id = %d", type(obj).__name__, cfg.pad_token_id)
         log.info("qwen-tts loaded. Speakers: %s", self._model.get_supported_speakers())
 
     @property
