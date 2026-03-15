@@ -231,7 +231,7 @@ class TTSService:
                       language, len(ref_audio) / 16000, text[:80])
         try:
             # ~12Hz codec: ~1 token per character of text, with minimum for short phrases
-        max_tokens = min(512, max(64, len(text) * 2))
+            max_tokens = min(512, max(64, len(text) * 2))
             wavs, sr = self._model.generate_voice_clone(
                 text=text,
                 language=language,
